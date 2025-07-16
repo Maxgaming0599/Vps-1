@@ -1,0 +1,45 @@
+name: Create VPS
+
+on:
+  workflow_dispatch:        # Manual "Run workflow" button
+  repository_dispatch:      # Trigger via API
+
+jobs:
+  start-vps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours
+
+    steps:
+      - name: ⬇️ Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: 📁 Prepare Directories
+        run: mkdir -p .backup
+
+      - name: 🔁 Restore Backup (Optional)
+        run: |
+          name="${{ github.event.client_payload.vps_name || 'manual-vps' }}"
+          if [ "${{ github.event.client_payload.backup }}" == "true" ]; then
+            echo "📦 Attempting to restore backup..."
+            unzip ".backup/$name.zip" -d . || echo "⚠️ No backup file found."
+          fi
+
+      - name: 🔐 Start tmate SSH Session
+        run: |
+          echo "⚙️ Installing and starting tmate..."
+          sudo apt update && sudo apt install -y tmate
+          tmate -S /tmp/tmate.sock new-session -d
+          tmate -S /tmp/tmate.sock wait tmate-ready
+          echo "🔐 SSH session is ready!"
+          tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}'
+          echo "📢 Copy the above SSH address and connect via Termux or PC."
+
+      - name: 💾 Save Backup
+        run: |
+          name="${{ github.event.client_payload.vps_name || 'manual-vps' }}"
+          zip -r ".backup/$name.zip" . -x ".git/*" ".github/*" ".backup/*" || true
+
+      - name: ⏳ Keep VPS Alive
+        run: |
+          echo "🟢 VPS will stay alive for 6 hours."
+          sleep $((360 * 60))
