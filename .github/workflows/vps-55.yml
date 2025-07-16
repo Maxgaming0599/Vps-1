@@ -1,0 +1,49 @@
+name: Create VPS with SSHx + Auto Restart
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [create-vps]
+
+jobs:
+  start-vps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+
+      - name: 📁 Prepare Directories
+        run: mkdir -p .backup data scripts configs
+
+      - name: 🔄 Restore Backup
+        run: |
+          name="${{ github.event.client_payload.vps_name || 'manual-vps' }}"
+          if [ "${{ github.event.client_payload.backup }}" == "true" ]; then
+            echo "📦 Restoring backup..."
+            unzip ".backup/$name.zip" -d . || echo "⚠️ No backup found."
+          fi
+
+      - name: ⚙️ Start SSHx Session
+        run: |
+          echo "🚀 Starting SSHx session..."
+          curl -sSf https://sshx.io/get | sh -s run &  # launches in background
+          sleep 15
+          echo "🔗 SSHx should be available above."
+
+      - name: 💾 Save Backup
+        run: |
+          name="${{ github.event.client_payload.vps_name || 'manual-vps' }}"
+          zip -r ".backup/$name.zip" . -x ".git/*" ".github/*" ".backup/*" || echo "⚠️ Nothing to backup."
+
+      - name: 📤 Push Backup
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "🔁 Auto-backup for ${{ github.event.client_payload.vps_name || 'manual-vps' }}"
+          file_pattern: '.backup/*.zip'
+
+      - name: ⏳ Keep Alive
+        run: |
+          echo "🟢 VPS running — will auto restart after 6h timeout."
+          sleep $((360 * 60))
