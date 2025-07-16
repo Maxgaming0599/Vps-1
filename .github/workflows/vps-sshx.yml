@@ -1,0 +1,51 @@
+name: Create VPS with SSHx
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [create-vps]
+
+jobs:
+  start-vps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v3
+
+      - name: 📁 Prepare Directories
+        run: mkdir -p .backup data scripts configs
+
+      - name: 🔄 Restore Backup (if provided)
+        run: |
+          name="${{ github.event.client_payload.vps_name || 'manual-vps' }}"
+          if [ "${{ github.event.client_payload.backup }}" == "true" ]; then
+            echo "📦 Attempting to restore $name.zip..."
+            unzip ".backup/$name.zip" -d . || echo "⚠️ No backup found."
+          else
+            echo "⏩ Skipping restore."
+          fi
+
+      - name: ⚙️ Install SSHx.io
+        run: |
+          sudo apt update && sudo apt install -y curl openssh-server unzip zip
+          curl -s https://sshx.io/get | bash
+
+      - name: 🔐 Start SSHx Session
+        run: |
+          echo "🚀 Starting SSHx VPS session..."
+          sshx --keepalive 360m > sshx_link.txt 2>&1 &
+          sleep 5
+          echo "🔗 SSHx Link:"
+          grep -Eo 'sshx://[^ ]+' sshx_link.txt || echo "❌ SSHx failed"
+
+      - name: 💾 Save Backup
+        run: |
+          name="${{ github.event.client_payload.vps_name || 'manual-vps' }}"
+          zip -r ".backup/$name.zip" . -x ".git/*" ".github/*" ".backup/*"
+
+      - name: ⏳ Keep Alive
+        run: |
+          echo "🟢 Keeping session alive for 6 hours..."
+          sleep $((360 * 60))
