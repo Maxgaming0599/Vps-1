@@ -1,0 +1,63 @@
+name: 🔁 24/7 VPS with tmate (Auto Backup + Restart)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'  # Run every 6 hours
+  repository_dispatch:
+    types: [create-vps]
+
+jobs:
+  vps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+
+      - name: 📁 Prepare All Folders
+        run: |
+          mkdir -p .backup data scripts configs links
+
+      - name: 🔁 Restore Previous Backup (if exists)
+        run: |
+          name="${{ github.event.client_payload.vps_name || 'manual-vps' }}"
+          if [ -f ".backup/$name.zip" ]; then
+            echo "📦 Restoring from $name.zip..."
+            unzip ".backup/$name.zip" -d . || echo "⚠️ Restore failed"
+          else
+            echo "⏩ No backup file found, starting fresh"
+          fi
+
+      - name: 🔐 Start tmate Session
+        run: |
+          sudo apt update && sudo apt install -y tmate zip unzip
+          tmate -S /tmp/tmate.sock new-session -d
+          tmate -S /tmp/tmate.sock wait tmate-ready
+
+          SSH_LINK=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
+          WEB_LINK=$(tmate -S /tmp/tmate.sock display -p '#{tmate_web}')
+
+          echo "$SSH_LINK" | tee links/ssh.txt
+          echo "$WEB_LINK" | tee links/web.txt
+
+          echo "🔗 SSH: $SSH_LINK"
+          echo "🌐 Web: $WEB_LINK"
+
+      - name: 💾 Auto Backup Data
+        run: |
+          name="${{ github.event.client_payload.vps_name || 'manual-vps' }}"
+          zip -r ".backup/$name.zip" . -x ".git/*" ".github/*" ".backup/*"
+
+      - name: 📤 Force Push Backup & Links
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "🔁 Auto-backup + SSH info update"
+          file_pattern: '.backup/*.zip links/*.txt'
+          push_options: '--force'
+
+      - name: ⏳ Keep VPS Alive for 6 Hours
+        run: |
+          echo "🟢 VPS is running. Will auto-restart in 6h..."
+          sleep $((360 * 60))
